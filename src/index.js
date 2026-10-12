@@ -13,6 +13,7 @@ const config = require('./config');
 const repos = require('./repos');
 const { createServer } = require('./server');
 const web = require('./web');
+const cgit = require('./cgit');
 
 module.exports = {
   ...config,
@@ -21,4 +22,5 @@ module.exports = {
   isGitDir: repos.isGitDir,
   createServer,
   web,
+  cgit,
 };
