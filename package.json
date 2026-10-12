@@ -1,0 +1,36 @@
+{
+  "name": "localgit",
+  "version": "1.0.0",
+  "description": "Turn any folder (like a USB drive) into a browsable git remote over HTTP.",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "bin": {
+    "localgit": "bin/localgit.js"
+  },
+  "scripts": {
+    "start": "node bin/localgit.js",
+    "test": "node --test"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "."
+  },
+  "keywords": [
+    "usb",
+    "git",
+    "usb-server-git",
+    "git-server",
+    "smart-http"
+  ],
+  "author": "Float314",
+  "license": "MIT"
+}
