@@ -1,5 +1,7 @@
 # localgit
 
+<img src="./other/assets/Screenshot From 2026-10-12 19-55-52.png" alt="localgit with cgit option">
+
 > Ever wanted to get a git repo in your USB device? Well, now you can! With the
 > help of this tool, you can set up your USB drive (or any folder) as a git
 > remote.
