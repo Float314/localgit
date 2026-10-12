@@ -265,6 +265,9 @@ push, pull, web browsing, push-over-worktree, and disabled-push.
   reaching receive-pack then gets `403`.
 - The web UI escapes all user-controlled content (paths, messages, file
   contents) before rendering.
+- If youre running install.sh, please note that you need to run `chmod +x ./install.sh` 
+  and only then you can do `./install.sh` otherwise it will show an error regarding
+  security issues!
 
 ## License
 
