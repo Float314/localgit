@@ -7,6 +7,7 @@ const path = require('node:path');
 const { discover, buildIndex } = require('./repos');
 const { serveGitHttp } = require('./git-http');
 const web = require('./web');
+const cgit = require('./cgit');
 
 /**
  * @typedef {{
@@ -15,7 +16,10 @@ const web = require('./web');
  *   port: number,
  *   allowPush: boolean,
  *   web: boolean,
+ *   webInterface: 'builtin'|'cgit',
  *   scanDepth: number,
+ *   cgitCommand?: string,
+ *   cgitAssets?: string,
  * }} ServerConfig
  */
 
@@ -100,6 +104,12 @@ function createServer(config, options = {}) {
   });
   registry.refresh(true);
 
+  // When cgit is selected a runtime is created up front (locating the binary
+  // and generating a throwaway cgitrc); a missing binary surfaces here as a
+  // clear error instead of returning blank pages later.
+  const cgitRuntime =
+    config.web && config.webInterface === 'cgit' ? cgit.createRuntime(config, options.cgit || {}) : null;
+
   const serve = (req, res) => handle(req, res).catch((error) => {
     if (!res.headersSent) {
       res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
@@ -109,11 +119,19 @@ function createServer(config, options = {}) {
 
   const handle = async (req, res) => {
     registry.refresh();
+    if (cgitRuntime) cgitRuntime.updateRepos(registry.repos);
 
     const host = req.headers.host || `${config.host}:${config.port}`;
     const base = `http://${host}`;
     const requestUrl = new URL(req.url || '/', base);
     const pathname = requestUrl.pathname;
+
+    // cgit's static assets live at the web root; serve them from the asset
+    // directory before treating them as repositories.
+    if (cgitRuntime) {
+      if (pathname === '/favicon.ico' && cgitRuntime.assetRequest(pathname, res)) return;
+      if (segmentsOf(pathname).length === 1 && cgitRuntime.assetRequest(pathname, res)) return;
+    }
 
     if (pathname === '/favicon.ico') {
       res.writeHead(204);
@@ -126,6 +144,7 @@ function createServer(config, options = {}) {
     // Root: repository listing.
     if (segments.length === 0) {
       if (!config.web) return notFound(res, base, 'Web browser is disabled.');
+      if (cgitRuntime) return cgitRuntime.serveRequest(req, res);
       const html = await web.renderHome({
         repos: registry.repos,
         base,
@@ -171,6 +190,8 @@ function createServer(config, options = {}) {
     if (!config.web) {
       return notFound(res, base, 'Web browser is disabled.');
     }
+
+    if (cgitRuntime) return cgitRuntime.serveRequest(req, res);
 
     await routeWeb(req, res, requestUrl, repo, base, segments.slice(consumed));
   };
@@ -243,6 +264,7 @@ function createServer(config, options = {}) {
         server.close((error) => (error ? reject(error) : resolve()));
         // fetch()/undici keeps connections alive; drop them so close() resolves.
         if (typeof server.closeAllConnections === 'function') server.closeAllConnections();
+        if (cgitRuntime) cgitRuntime.dispose();
       }),
   };
 }

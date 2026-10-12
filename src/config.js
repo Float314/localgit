@@ -10,7 +10,10 @@ const { configDir, configPath, expandPath } = require('./util');
  *   port: number,
  *   allowPush: boolean,
  *   web: boolean,
+ *   webInterface: 'builtin'|'cgit',
  *   scanDepth: number,
+ *   cgitCommand?: string,
+ *   cgitAssets?: string,
  *   createdAt?: string,
  *   updatedAt?: string,
  * }} LocalgitConfig */
@@ -20,8 +23,19 @@ const DEFAULTS = {
   port: 4000,
   allowPush: true,
   web: true,
+  webInterface: 'builtin',
   scanDepth: 3,
 };
+
+/**
+ * Coerce `webInterface`. Anything other than "cgit" is treated as the
+ * built-in interface.
+ * @param {string|undefined} value
+ * @returns {'builtin'|'cgit'}
+ */
+function normalizeWebInterface(value) {
+  return String(value || '').toLowerCase() === 'cgit' ? 'cgit' : 'builtin';
+}
 
 /**
  * Coerce and validate a partial config, filling in defaults.
@@ -36,9 +50,12 @@ function normalize(input = {}) {
     port: Number.isFinite(Number(input.port)) ? Number(input.port) : DEFAULTS.port,
     allowPush: input.allowPush === undefined ? DEFAULTS.allowPush : Boolean(input.allowPush),
     web: input.web === undefined ? DEFAULTS.web : Boolean(input.web),
+    webInterface: normalizeWebInterface(input.webInterface),
     scanDepth:
       input.scanDepth === undefined ? DEFAULTS.scanDepth : Number(input.scanDepth),
   };
+  if (input.cgitCommand) config.cgitCommand = String(input.cgitCommand);
+  if (input.cgitAssets) config.cgitAssets = String(input.cgitAssets);
   if (input.createdAt) config.createdAt = input.createdAt;
   if (input.updatedAt) config.updatedAt = input.updatedAt;
   return config;
@@ -94,6 +111,7 @@ function save(config, file = resolveConfigPath()) {
 module.exports = {
   DEFAULTS,
   normalize,
+  normalizeWebInterface,
   resolveConfigPath,
   configDir,
   load,

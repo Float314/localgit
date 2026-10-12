@@ -6,6 +6,7 @@ const path = require('node:path');
 const configStore = require('./config');
 const { discover } = require('./repos');
 const { createServer } = require('./server');
+const cgit = require('./cgit');
 const { withPrompt, ask, confirm, select, colors: c } = require('./prompt');
 const { isDirectory, expandPath } = require('./util');
 
@@ -18,7 +19,7 @@ const pkg = require('../package.json');
 function parseArgs(argv) {
   const flags = {};
   const positionals = [];
-  const takesValue = new Set(['dir', 'port', 'host', 'depth', 'config']);
+  const takesValue = new Set(['dir', 'port', 'host', 'depth', 'config', 'web-ui']);
   const shortMap = { d: 'dir', p: 'port', H: 'host', c: 'config', h: 'help', v: 'version' };
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -76,6 +77,13 @@ function overridesFromFlags(flags) {
   if (flags.host) overrides.host = flags.host;
   if (flags.push !== undefined) overrides.allowPush = Boolean(flags.push);
   if (flags.web !== undefined) overrides.web = Boolean(flags.web);
+  if (flags['web-ui'] !== undefined) {
+    const value = String(flags['web-ui']).toLowerCase();
+    if (value !== 'builtin' && value !== 'cgit') {
+      throw new Error('--web-ui must be either "builtin" or "cgit".');
+    }
+    overrides.webInterface = value;
+  }
   if (flags.depth !== undefined) overrides.scanDepth = Number(flags.depth);
   return overrides;
 }
@@ -100,83 +108,135 @@ async function gatherConfig({ base, overrides }) {
     process.stdout.write(
       `\n${c.bold('localgit setup')} — a few questions, then your USB becomes a git remote.\n\n`,
     );
+    return gatherAnswers(rl, current);
+  });
+}
 
-    // 1. Where repos live.
-    let dir = current.dir || process.cwd();
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      const answer = await ask(rl, 'Where are all your git repositories stored?', {
-        default: dir,
-      });
-      const abs = expandPath(answer);
-      if (isDirectory(abs)) {
-        dir = abs;
-        break;
-      }
-      const create = await confirm(rl, `"${abs}" does not exist. Create it?`, true);
-      if (create) {
-        fs.mkdirSync(abs, { recursive: true });
-        dir = abs;
-        break;
-      }
+/**
+ * Ask every setup question against `rl` and return the normalized config.
+ * Split out from `gatherConfig` so the flow can be tested with a fake
+ * readline without needing a TTY.
+ * @param {import('node:readline/promises').Interface} rl
+ * @param {object} current
+ * @returns {Promise<object>}
+ */
+async function gatherAnswers(rl, current) {
+  // 1. Where repos live.
+  let dir = current.dir || process.cwd();
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const answer = await ask(rl, 'Where are all your git repositories stored?', {
+      default: dir,
+    });
+    const abs = expandPath(answer);
+    if (isDirectory(abs)) {
+      dir = abs;
+      break;
     }
+    const create = await confirm(rl, `"${abs}" does not exist. Create it?`, true);
+    if (create) {
+      fs.mkdirSync(abs, { recursive: true });
+      dir = abs;
+      break;
+    }
+  }
 
-    // 2. Which address to listen on.
-    const host = await select(
+  // 2. Which address to listen on.
+  const host = await select(
+    rl,
+    'Which address should the server listen on?',
+    [
+      {
+        label: '127.0.0.1 (this computer only)',
+        value: '127.0.0.1',
+        hint: 'safest default',
+      },
+      {
+        label: '0.0.0.0 (all interfaces)',
+        value: '0.0.0.0',
+        hint: 'reachable from other devices on the network',
+      },
+    ],
+    current.host === '0.0.0.0' ? 1 : 0,
+  );
+
+  // 3. Port.
+  const port = await ask(rl, 'Which port should the server use?', {
+    default: String(currentPort(current)),
+    validate: (value) => {
+      const n = Number(value);
+      if (!Number.isInteger(n) || n < 1 || n > 65535) return 'Enter a port between 1 and 65535.';
+      return true;
+    },
+    transform: Number,
+  });
+
+  // 4. Allow push?
+  const allowPush = await confirm(
+    rl,
+    'Allow git push (receive-pack) to these repositories?',
+    current.allowPush !== false,
+  );
+
+  // 5. Web browser?
+  const web = await confirm(
+    rl,
+    'Enable the web repository browser at / ?',
+    current.web !== false,
+  );
+
+  // 5.b. Which rendering engine, when the browser is enabled?
+  let webInterface = 'builtin';
+  if (web) {
+    const detected = cgit.locate();
+    const cgitHint = detected
+      ? `detected at ${detected.binary}`
+      : 'not detected (install cgit or set CGIT_BINARY)';
+    webInterface = await select(
       rl,
-      'Which address should the server listen on?',
+      'Which web interface should the browser use?',
       [
         {
-          label: '127.0.0.1 (this computer only)',
-          value: '127.0.0.1',
-          hint: 'safest default',
+          label: 'Built-in (localgit)',
+          value: 'builtin',
+          hint: 'no extra software, always available',
         },
         {
-          label: '0.0.0.0 (all interfaces)',
-          value: '0.0.0.0',
-          hint: 'reachable from other devices on the network',
+          label: 'cgit',
+          value: 'cgit',
+          hint: cgitHint,
         },
       ],
-      current.host === '0.0.0.0' ? 1 : 0,
+      current.webInterface === 'cgit' && detected ? 1 : 0,
     );
+    if (webInterface === 'cgit' && !detected) {
+      process.stdout.write(
+        `${c.yellow('!')} cgit was not found on this system. The server will refuse to start ` +
+          `until you install cgit or point CGIT_BINARY at the binary.\n`,
+      );
+    }
+  }
 
-    // 3. Port.
-    const port = await ask(rl, 'Which port should the server use?', {
-      default: String(currentPort(current)),
-      validate: (value) => {
-        const n = Number(value);
-        if (!Number.isInteger(n) || n < 1 || n > 65535) return 'Enter a port between 1 and 65535.';
-        return true;
-      },
-      transform: Number,
-    });
+  // 6. Scan depth.
+  const scanDepth = await ask(rl, 'How many folder levels deep should I scan for repos?', {
+    default: String(current.scanDepth || 3),
+    validate: (value) => {
+      const n = Number(value);
+      if (!Number.isInteger(n) || n < 0 || n > 10) return 'Enter a number between 0 and 10.';
+      return true;
+    },
+    transform: Number,
+  });
 
-    // 4. Allow push?
-    const allowPush = await confirm(
-      rl,
-      'Allow git push (receive-pack) to these repositories?',
-      current.allowPush !== false,
-    );
-
-    // 5. Web browser?
-    const web = await confirm(
-      rl,
-      'Enable the web repository browser at / ?',
-      current.web !== false,
-    );
-
-    // 6. Scan depth.
-    const scanDepth = await ask(rl, 'How many folder levels deep should I scan for repos?', {
-      default: String(current.scanDepth || 3),
-      validate: (value) => {
-        const n = Number(value);
-        if (!Number.isInteger(n) || n < 0 || n > 10) return 'Enter a number between 0 and 10.';
-        return true;
-      },
-      transform: Number,
-    });
-
-    return configStore.normalize({ ...current, dir, host, port, allowPush, web, scanDepth });
+  return configStore.normalize({
+    ...current,
+    dir,
+    host,
+    port,
+    allowPush,
+    web,
+    webInterface,
+    scanDepth,
   });
 }
 
@@ -196,6 +256,8 @@ function printBanner(cfg, registry) {
   const shown = cfg.host === '0.0.0.0' ? '127.0.0.1' : cfg.host;
   const base = `http://${shown}:${cfg.port}`;
   const repos = registry.repos;
+  const interfaceLabel =
+    cfg.webInterface === 'cgit' ? c.dim(`cgit`) : c.dim('built-in');
   const lines = [
     '',
     `${c.green('✔')} ${c.bold('localgit is running')}`,
@@ -203,7 +265,7 @@ function printBanner(cfg, registry) {
     `  Web UI     ${c.cyan(`${base}/`)}`,
     `  Repos dir  ${cfg.dir}`,
     `  Push       ${cfg.allowPush ? c.green('enabled') : c.yellow('disabled')}`,
-    `  Web        ${cfg.web ? c.green('enabled') : c.yellow('disabled')}`,
+    `  Web        ${cfg.web ? c.green(`enabled (${interfaceLabel})`) : c.yellow('disabled')}`,
     '',
   ];
 
@@ -386,11 +448,16 @@ ${c.bold('Options')}
   -c, --config <file>  Use a specific config file
       --no-push        Disable git push
       --no-web         Disable the web browser
+      --web-ui <name>  Web interface: builtin (default) or cgit
       --setup          Re-run the setup questions
       --yes            Accept defaults / no prompts
       --no-save        Do not write a config file after an interactive setup
   -h, --help           Show this help
   -v, --version        Print the version
+
+${c.bold('Environment')}
+  CGIT_BINARY          Path to the cgit executable (default: probe PATH)
+  CGIT_ASSETS          Directory with cgit's css/js/logo files
 
 ${c.bold('Examples')}
   localgit                                   # interactive first run, then serve
@@ -434,4 +501,4 @@ async function main(argv = process.argv.slice(2)) {
   }
 }
 
-module.exports = { main, parseArgs, runServe, runList, runSetupCommand };
+module.exports = { main, parseArgs, gatherConfig, gatherAnswers, runServe, runList, runSetupCommand };

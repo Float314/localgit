@@ -27,16 +27,20 @@ Smart HTTP: https://git-scm.com/docs/gitprotocol-http
 | Capability            | Description                                                                   |
 | --------------------- | ----------------------------------------------------------------------------- |
 | Web repository browser| List repos, view trees, files (with raw downloads), commits, logs, branches, tags, READMEs |
+| Built-in or cgit UI   | Pick the dependency-free built-in browser or, if installed, the classic [cgit] interface |
 | Smart HTTP clone/push | Uses git's own `git http-backend` CGI - no third-party server needed           |
 | Bare and   work trees | Serves `project.git` and regular `project/` (with `.git`) repositories        |
 | Push to work trees    | Uses `receive.denyCurrentBranch=updateInstead` so pushed commits appear in the working tree |
 | Interactive setup     | First run asks *where your repositories live*, port, address, push & web preferences |
 | Lightweight           | Pure Node.js http server, tiny dependency-free browser UI, ~tens of MB RAM    |
 
+[cgit]: https://git.zx2c4.com/cgit/
+
 ## Requirements
 
 - **Node.js >= 18**
 - **git** on your `PATH` (with `git http-backend`, present in every standard git install)
+- **cgit** (optional) - only needed when you choose the cgit web interface
 
 No npm packages are installed at runtime.
 
@@ -70,7 +74,11 @@ On first run `localgit` asks a few questions:
 3. **Which port should the server use?** - defaults to `4000`.
 4. **Allow git push?** - enable receive-pack (default yes).
 5. **Enable the web browser?** - the repo browser at `/` (default yes).
-6. **Scan depth** - how many folder levels deep to search for repos.
+6. **Which web interface?** - the dependency-free *built-in* browser (default)
+   or *cgit* (if installed). cgit is the classic, feature-complete git browser;
+   everything runs as CGI via `git http-backend` for clone/push and a small
+   bridge that translates requests to the `cgit` binary.
+7. **Scan depth** - how many folder levels deep to search for repos.
 
 Then it starts the server and prints what it found:
 
@@ -80,7 +88,7 @@ Then it starts the server and prints what it found:
   Web UI     http://127.0.0.1:4000/
   Repos dir  /media/you/USB/git
   Push       enabled
-  Web        enabled
+  Web        enabled (cgit)
 
   3 repositories:
     http://127.0.0.1:4000/another.git
@@ -122,6 +130,12 @@ Open `http://127.0.0.1:4000/`:
 - `.../:project/commit/?id=<sha>` - commit details & diff
 - `.../:project/branches/`, `…/:project/tags/` - refs
 
+With the **cgit** interface (`--web-ui cgit`) the same `http://127.0.0.1:4000/`
+address instead renders cgit's own pages (`/project/`, `/project/tree/`,
+`/project/log/`, `/project/commit/`, …), with cgit's static assets served from
+`/cgit.css`, `/cgit.js` and `/cgit.png`. The repo names are identical either
+way; cloning and pushing use the same smart-HTTP endpoints.
+
 ## Commands & options
 
 ```
@@ -142,10 +156,18 @@ Options
   -c, --config <file>  Use a specific config file
       --no-push        Disable git push
       --no-web         Disable the web browser
+      --web-ui <name>  Web interface: builtin (default) or cgit
       --setup          Re-run the setup questions
       --yes            Accept defaults / no prompts
       --no-save        Do not write the config file
 ```
+
+Environment variables:
+
+- `CGIT_BINARY` - path to the cgit executable (otherwise probed on `PATH` and
+  at the usual locations such as `/usr/lib/cgit/cgit.cgi`)
+- `CGIT_ASSETS` - directory holding cgit's `cgit.css` / `cgit.js` / `cgit.png`
+  (otherwise probed, e.g. `/usr/share/cgit`)
 
 Examples:
 
@@ -158,6 +180,9 @@ localgit serve --dir /media/you/USB/git --port 4000
 
 # expose to your local network
 localgit --dir /media/you/USB/git --host 0.0.0.0
+
+# use the cgit web interface (must be installed)
+localgit serve --dir /media/you/USB/git --web-ui cgit
 
 # list what would be served
 localgit list --dir /media/you/USB/git
@@ -184,9 +209,13 @@ Example:
   "port": 4000,
   "allowPush": true,
   "web": true,
+  "webInterface": "builtin",
   "scanDepth": 3
 }
 ```
+
+Set `"webInterface": "cgit"` to use cgit (see `CGIT_BINARY` / `CGIT_ASSETS` above
+if it is not in a standard location).
 
 ## How it works
 
@@ -201,6 +230,10 @@ Example:
   repository files are ever modified.
 - **Web UI** - `src/web.js` renders a small, dependency-free, XSS-escaped
   gitweb-like interface by shelling out to `git log`, `git ls-tree`, `git show`.
+- **cgit UI** - `src/cgit.js` locates the `cgit` binary, generates a throwaway
+  `cgitrc` (in a temp dir, never on the drive) listing the discovered
+  repositories, and proxies web requests to cgit over CGI. `src/cgi.js` is the
+  shared CGI bridge used by both `git http-backend` and cgit.
 - **Server** - `src/server.js` routes between git endpoints (`/info/refs`,
   `/git-upload-pack`, `/git-receive-pack`, …) and web pages, with a short scan
   cache so new repositories appear within seconds.
