@@ -1,6 +1,6 @@
 {
   "name": "localgit",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Turn any folder (like a USB drive) into a browsable git remote over HTTP.",
   "main": "src/index.js",
   "type": "commonjs",
