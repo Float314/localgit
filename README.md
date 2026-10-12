@@ -10,9 +10,9 @@
 
 </div>
 
-> Ever wanted to get a git repo in your USB device? Well, now you can! With the
-> help of this tool, you can set up your USB drive (or any folder) as a git
-> remote.
+Ever wanted to get a git repo in your USB device? Well, now you can! With the
+help of this tool, you can set up your USB drive (or any folder) as a git
+remote.
 
 `localgit` turns any directory - a USB drive, an external disk, a CI cache
 folder - into a **browsable git remote** over HTTP. Plug in your drive, run one
