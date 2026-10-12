@@ -2,6 +2,14 @@
 
 <img src="./other/assets/Screenshot From 2026-10-12 19-55-52.png" alt="localgit with cgit option">
 
+<div align="center">
+
+![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/Float314/localgit/node.js.yml)
+![GitHub License](https://img.shields.io/github/license/Float314/localgit)
+![GitHub top language](https://img.shields.io/github/languages/top/Float314/localgit)
+
+</div>
+
 > Ever wanted to get a git repo in your USB device? Well, now you can! With the
 > help of this tool, you can set up your USB drive (or any folder) as a git
 > remote.
